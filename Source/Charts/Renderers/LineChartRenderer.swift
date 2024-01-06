@@ -219,6 +219,12 @@ open class LineChartRenderer: LineRadarRenderer
                 prev = cur
                 cur = dataSet.entryForIndex(j)
                 
+                if cur.y.isNaN { continue }
+                if prev.y.isNaN {
+                    cubicPath.move(to: CGPoint(x: CGFloat(cur.x), y: CGFloat(cur.y * phaseY)), transform: valueToPixelMatrix)
+                    continue
+                }
+                
                 let cpx = CGFloat(prev.x + (cur.x - prev.x) / 2.0)
                 
                 cubicPath.addCurve(
@@ -263,33 +269,85 @@ open class LineChartRenderer: LineRadarRenderer
         matrix: CGAffineTransform,
         bounds: XBounds)
     {
-        guard
-            let dataProvider = dataProvider
-        else { return }
+        guard let dataProvider = dataProvider else { return }
         
-        if bounds.range <= 0
-        {
+        let phaseY = animator.phaseY
+        let fillMin = dataSet.fillFormatter?.getFillLinePosition(dataSet: dataSet, dataProvider: dataProvider) ?? 0.0
+        
+        // the path for the cubic-spline
+        let cubicPath = CGMutablePath()
+        
+        if _xBounds.range <= 1{
             return
         }
         
-        let fillMin = dataSet.fillFormatter?.getFillLinePosition(dataSet: dataSet, dataProvider: dataProvider) ?? 0.0
+        if _xBounds.range >= 1
+        {
+            var prev: ChartDataEntry! = dataSet.entryForIndex(_xBounds.min)
+            var cur: ChartDataEntry! = prev
+            
+            if cur == nil { return }
+            
+            // let the spline start
+            
+            if !cur.y.isNaN {
+                cubicPath.move(to: CGPoint(x: CGFloat(cur.x), y: fillMin), transform: matrix)
+                cubicPath.addLine(to: CGPoint(x: CGFloat(cur.x), y: CGFloat(cur.y * phaseY)), transform: matrix)
+            }
+            
+            for j in _xBounds.dropFirst()
+            {
+                prev = cur
+                cur = dataSet.entryForIndex(j)
+                
+                if cur.y.isNaN {
+                    if !prev.y.isNaN{
+                        cubicPath.addLine(to: CGPoint(x: CGFloat(prev.x), y: fillMin), transform: matrix)
+                    }
+                    continue
+                }
+                if prev.y.isNaN {
+                    cubicPath.move(to: CGPoint(x: CGFloat(cur.x), y: fillMin), transform: matrix)
+                    cubicPath.addLine(to: CGPoint(x: CGFloat(cur.x), y: CGFloat(cur.y * phaseY)), transform: matrix)
+                    continue
+                }
+                
+                let cpx = CGFloat(prev.x + (cur.x - prev.x) / 2.0)
+                
+                cubicPath.addCurve(
+                    to: CGPoint(
+                        x: CGFloat(cur.x),
+                        y: CGFloat(cur.y * phaseY)),
+                    control1: CGPoint(
+                        x: cpx,
+                        y: CGFloat(prev.y * phaseY)),
+                    control2: CGPoint(
+                        x: cpx,
+                        y: CGFloat(cur.y * phaseY)),
+                    transform: matrix)
+            }
+            if !cur.y.isNaN {
+                cubicPath.addLine(to: CGPoint(x: CGFloat(cur.x), y: fillMin), transform: matrix)
+            }
+        }
+        cubicPath.closeSubpath()
 
-        var pt1 = CGPoint(x: CGFloat(dataSet.entryForIndex(bounds.min + bounds.range)?.x ?? 0.0), y: fillMin)
-        var pt2 = CGPoint(x: CGFloat(dataSet.entryForIndex(bounds.min)?.x ?? 0.0), y: fillMin)
-        pt1 = pt1.applying(matrix)
-        pt2 = pt2.applying(matrix)
-        
-        spline.addLine(to: pt1)
-        spline.addLine(to: pt2)
-        spline.closeSubpath()
+//        var pt1 = CGPoint(x: CGFloat(dataSet.entryForIndex(bounds.min + bounds.range)?.x ?? 0.0), y: fillMin)
+//        var pt2 = CGPoint(x: CGFloat(dataSet.entryForIndex(bounds.min)?.x ?? 0.0), y: fillMin)
+//        pt1 = pt1.applying(matrix)
+//        pt2 = pt2.applying(matrix)
+//
+//        spline.addLine(to: pt1)
+//        spline.addLine(to: pt2)
+//        spline.closeSubpath()
         
         if dataSet.fill != nil
         {
-            drawFilledPath(context: context, path: spline, fill: dataSet.fill!, fillAlpha: dataSet.fillAlpha)
+            drawFilledPath(context: context, path: cubicPath, fill: dataSet.fill!, fillAlpha: dataSet.fillAlpha)
         }
         else
         {
-            drawFilledPath(context: context, path: spline, fillColor: dataSet.fillColor, fillAlpha: dataSet.fillAlpha)
+            drawFilledPath(context: context, path: cubicPath, fillColor: dataSet.fillColor, fillAlpha: dataSet.fillAlpha)
         }
     }
     
@@ -400,8 +458,14 @@ open class LineChartRenderer: LineRadarRenderer
             let path = CGMutablePath()
             for x in stride(from: _xBounds.min, through: _xBounds.range + _xBounds.min, by: 1)
             {
-                guard let e1 = dataSet.entryForIndex(x == 0 ? 0 : (x - 1)) else { continue }
+                guard var e1 = dataSet.entryForIndex(x == 0 ? 0 : (x - 1)) else { continue }
                 guard let e2 = dataSet.entryForIndex(x) else { continue }
+                
+                if e2.y.isNaN { continue }
+                if e1.y.isNaN {
+                    firstPoint = true
+                    e1 = e2
+                }
                 
                 let startPoint =
                     CGPoint(
@@ -488,19 +552,39 @@ open class LineChartRenderer: LineRadarRenderer
             filled.move(to: CGPoint(x: CGFloat(e.x), y: fillMin), transform: matrix)
             filled.addLine(to: CGPoint(x: CGFloat(e.x), y: CGFloat(e.y * phaseY)), transform: matrix)
         }
+                
+        var prev: ChartDataEntry! = dataSet.entryForIndex(_xBounds.min)
+        var curv: ChartDataEntry! = prev
         
         // create a new path
         for x in stride(from: (bounds.min + 1), through: bounds.range + bounds.min, by: 1)
         {
-            guard let e = dataSet.entryForIndex(x) else { continue }
+            prev = curv
+            curv = dataSet.entryForIndex(x)
+            
+            if curv.y.isNaN {
+                if prev != nil && !prev.y.isNaN {
+                    filled.addLine(to: CGPoint(x: CGFloat(prev.x), y: fillMin), transform: matrix)
+                }
+                continue
+            }
+            if prev.y.isNaN {
+                filled.move(to: CGPoint(x: CGFloat(curv.x), y: fillMin), transform: matrix)
+                filled.addLine(to: CGPoint(x: CGFloat(curv.x), y: CGFloat(curv.y * phaseY)), transform: matrix)
+                continue
+            }
+            
+//            guard let e = dataSet.entryForIndex(x) else {
+//                continue
+//            }
             
             if isDrawSteppedEnabled
             {
                 guard let ePrev = dataSet.entryForIndex(x-1) else { continue }
-                filled.addLine(to: CGPoint(x: CGFloat(e.x), y: CGFloat(ePrev.y * phaseY)), transform: matrix)
+                filled.addLine(to: CGPoint(x: CGFloat(curv.x), y: CGFloat(ePrev.y * phaseY)), transform: matrix)
             }
             
-            filled.addLine(to: CGPoint(x: CGFloat(e.x), y: CGFloat(e.y * phaseY)), transform: matrix)
+            filled.addLine(to: CGPoint(x: CGFloat(curv.x), y: CGFloat(curv.y * phaseY)), transform: matrix)
         }
         
         // close up
@@ -565,7 +649,7 @@ open class LineChartRenderer: LineRadarRenderer
                     
                     if (!viewPortHandler.isInBoundsRight(pt.x))
                     {
-                        break
+                        continue
                     }
                     
                     if (!viewPortHandler.isInBoundsLeft(pt.x) || !viewPortHandler.isInBoundsY(pt.y))
@@ -668,7 +752,7 @@ open class LineChartRenderer: LineRadarRenderer
                 
                 if (!viewPortHandler.isInBoundsRight(pt.x))
                 {
-                    break
+                    continue
                 }
                 
                 // make sure the circles don't do shitty things outside bounds
