@@ -212,7 +212,9 @@ open class LineChartRenderer: LineRadarRenderer
             if cur == nil { return }
             
             // let the spline start
-            cubicPath.move(to: CGPoint(x: CGFloat(cur.x), y: CGFloat(cur.y * phaseY)), transform: valueToPixelMatrix)
+            if !cur.y.isNaN {
+                cubicPath.move(to: CGPoint(x: CGFloat(cur.x), y: CGFloat(cur.y * phaseY)), transform: valueToPixelMatrix)
+            }
             
             for j in _xBounds.dropFirst()
             {
@@ -243,6 +245,9 @@ open class LineChartRenderer: LineRadarRenderer
         
         context.saveGState()
         defer { context.restoreGState() }
+        
+        // 可能不存在该图形，则不绘制
+        guard cubicPath.boundingBoxOfPath != CGRectNull else { return }
         
         if dataSet.isDrawFilledEnabled
         {

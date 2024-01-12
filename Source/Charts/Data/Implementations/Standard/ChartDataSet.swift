@@ -117,8 +117,11 @@ open class ChartDataSet: ChartBaseDataSet
     
     @objc open func calcMinMaxY(entry e: ChartDataEntry)
     {
-        _yMin = Swift.min(e.y, _yMin)
-        _yMax = Swift.max(e.y, _yMax)
+        if !e.y.isNaN
+        {
+            _yMin = Swift.min(e.y, _yMin)
+            _yMax = Swift.max(e.y, _yMax)
+        }
     }
     
     /// Updates the min and max x and y value of this DataSet based on the given Entry.
